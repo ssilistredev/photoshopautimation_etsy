@@ -1,0 +1,308 @@
+import os
+import shutil
+import random
+import json
+import glob
+import win32com.client
+from PIL import Image
+import requests
+from reportlab.pdfgen import canvas
+
+def create_etsy_folders(input_folder):
+    for root, dirs, files in os.walk(input_folder):
+        if "etsy" in dirs:
+            print("Etsy folder already exists")
+            dirs.remove("etsy")
+        else:
+            etsy_folder_path = os.path.join(root, "etsy")
+            os.makedirs(etsy_folder_path)
+
+def copy_images_to_etsy_folder(input_folder):
+    for root, dirs, files in os.walk(input_folder):
+        for file in files:
+            if file.lower().endswith((".png", ".jpg", ".jpeg")):
+                file_path = os.path.join(root, file)
+                etsy_folder_path = os.path.join(root, "etsy")
+                shutil.copy(file_path, etsy_folder_path) 
+
+def rename_files(input_folder):
+    for root, dirs, files in os.walk(input_folder):
+        if os.path.basename(root) == "etsy":
+            file_count = 1
+            for file in files:
+                if file.lower().endswith((".png", ".jpg", ".jpeg")):
+                    file_path = os.path.join(root, file)
+                    new_file_name = f"image{file_count}.psd"
+                    new_file_path = os.path.join(root, new_file_name)
+                    os.rename(file_path, new_file_path)
+                    file_count += 1
+
+def resize_files(input_folder):
+    for root, dirs, files in os.walk(input_folder):
+        for file in files:
+            if file.lower().endswith(".psd"):
+                file_path = os.path.join(root, file)
+                img = Image.open(file_path)
+                img = img.resize((500, 700), Image.ANTIALIAS)
+                img.save(file_path, dpi=(72, 72))
+
+def copy_mockup_files(mockup_folder, input_folder,min_mockup_files, max_mockup_files):
+    for root, dirs, files in os.walk(input_folder):
+        etsy_folder = os.path.join(root, "etsy")
+        if not os.path.exists(etsy_folder):
+            continue
+
+        if "etsy" in dirs:
+            dirs.remove("etsy")
+
+        mockup_files = [file for file in os.listdir(mockup_folder) if file.lower().startswith("kapak") and file.lower().endswith(".psd")]
+        random.shuffle(mockup_files)
+        selected_mockup_files = mockup_files[:random.randint(min_mockup_files, max_mockup_files)]
+
+        for file in selected_mockup_files:
+            file_path = os.path.join(mockup_folder, file)
+            try:
+                shutil.copy(file_path, etsy_folder)
+            except OSError as e:
+                print(f"İşlem devam ediyor: {e}")
+                continue
+
+def process_mockup_files(input_folder, action_name, action_set_name, keywords):
+    app = win32com.client.Dispatch("Photoshop.Application")
+    app.DisplayDialogs = 3  # etkileşimli modu devre dışı bırak
+
+    for root, dirs, files in os.walk(input_folder):
+        etsy_folder = os.path.join(root, "etsy")
+        if not os.path.exists(etsy_folder) or not os.path.isdir(etsy_folder):
+            continue
+
+        for etsy_root, etsy_dirs, etsy_files in os.walk(etsy_folder):
+            for file in etsy_files:
+                if file.lower().endswith(".psd") and file.lower().startswith("kapak"):
+                    file_path = os.path.join(etsy_root, file)
+                
+                    doc = app.Open(file_path)
+                    doc = app.ActiveDocument
+
+                    app.DoAction(action_name, action_set_name)
+
+                    # Export işlemi
+                    export_options = win32com.client.Dispatch("Photoshop.ExportOptionsSaveForWeb")
+                    export_options.Format = 13  # PNG formatı
+                    export_options.PNG8 = False
+                    export_options.Quality = 100
+                    
+                    unique_keywords = random.sample(keywords, 1)  # 1 benzersiz keyword seçin
+                    base_folder_name = os.path.basename(input_folder)
+                    for keyword in unique_keywords:
+                        new_file_name = f"{base_folder_name}_{keyword}.png"
+                        output_path = os.path.join(etsy_folder, new_file_name)
+
+
+                    # Dosya formatını belirleyin (PNG için = 13)
+                    png_format = 13
+
+                    # Dosyayı PNG olarak kaydetmek için Export metodunu kullanın
+                    options = win32com.client.Dispatch("Photoshop.ExportOptionsSaveForWeb")
+                    options.Format = png_format
+                    options.Quality = 100
+                    doc.Export(ExportIn=output_path, ExportAs=2, Options=options)
+
+                    doc.Close(2)  # Dosyayı kapatın ve değişiklikleri kaydetmeyin
+                    print(f"Export işlemi yapılan dosya: {file_path}")
+                    print(f"Kaydedilen dosya: {new_file_name}")
+                
+def delete_empty_etsy_folders(input_folder):
+    for root, dirs, files in os.walk(input_folder, topdown=False):
+        for dir in dirs:
+            if dir.lower() == "etsy":
+                etsy_folder_path = os.path.join(root, dir)
+                has_image_files = any(file.lower().endswith((".jpg", ".png", ".psd")) for file in files)
+                if not has_image_files:
+                    os.rmdir(etsy_folder_path)
+
+def process_customer_delivery_files(input_folder):
+    app = win32com.client.Dispatch("Photoshop.Application")
+
+    for root, dirs, files in os.walk(input_folder):
+        for index, file in enumerate(files, start=1):
+            if file.lower().endswith(".png") and not file.lower().startswith("musteri_teslim"):
+                file_path = os.path.join(root, file)
+                new_file_name = f"musteri_teslim{index}.png"
+                doc = app.Open(file_path)
+                doc = app.ActiveDocument
+                app.DoAction("musteri_teslim", "ayar")
+                etsy_folder_path = os.path.join(root, "etsy")
+                if not os.path.exists(etsy_folder_path):
+                    os.makedirs(etsy_folder_path)
+
+                try:
+                    shutil.copy(file_path, os.path.join(etsy_folder_path, new_file_name))
+                except Exception as e:
+                    print(f"Devam ediliyor: {e}")
+                    continue
+
+                doc.Close(2)
+
+def remove_psd_files_from_etsy_folders(root_folder):
+    for root, dirs, files in os.walk(root_folder):
+        if "etsy" in dirs:
+            etsy_folder = os.path.join(root, "etsy")
+            psd_files = [file for file in os.listdir(etsy_folder) if file.lower().endswith(".psd")]
+            for psd_file in psd_files:
+                file_path = os.path.join(etsy_folder, psd_file)
+                try:
+                    os.remove(file_path)
+                except OSError as e:
+                    print(f"Hata: {e}")
+                    continue
+
+def create_download_link_pdf(output_file, download_links):
+    output_folder = os.path.dirname(output_file)
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    c = canvas.Canvas(output_file)
+    c.setFont("Helvetica", 12)
+    y = 700
+    for link in download_links:
+        c.drawString(100, y, link)
+        y -= 20
+    c.drawString(100, y-40, "Thanks for your purchase, you can download the files directly from the links above.")
+    c.drawString(100, y-60, "Please do not forget to comment. =)!")
+    c.save()
+
+def upload_to_gofile(file_path,gofile_token):
+    print('Dosya Gofile upload ediliyor.')
+    server = requests.get('https://api.gofile.io/getServer')
+    servername = json.loads(server.content)
+    store=servername["data"]["server"]
+    data={
+        "token": gofile_token
+        #"folderId": folderId,
+        #"description": description,
+        #"password": password,
+        #"tags": tags,
+        #"expire": expire
+    }
+    files = {
+        'file': open(f'{file_path}', 'rb'),
+    }
+    response = requests.post(f'https://{store}.gofile.io/uploadFile',data=data,files=files)
+    link=json.loads(response.content)
+    #Premium aldık#
+    pagelink=link['data']['downloadPage']
+    contentId=link['data']['parentFolder']
+    checkdata = requests.get(f'https://api.gofile.io/getContent?contentId={contentId}&token=jyTlJ1FWMfjrhbepNVmma7flYiXAltg6')
+    direct_link=json.loads(checkdata.content)
+    download_childID=direct_link['data']['childs'][0]
+    dwn_link=direct_link['data']['contents'][download_childID]['link']
+    if pagelink != "":
+        return pagelink
+    return None
+
+def process_customer_delivery_files_with_pdf(input_folder,gofile_token):
+    for root, dirs, files in os.walk(input_folder):
+        etsy_folders = [folder for folder in dirs if folder.lower() == "etsy"]
+        for etsy_folder in etsy_folders:
+            etsy_folder_path = os.path.join(root, etsy_folder)
+            download_links = []
+
+            try:
+                for etsy_root, etsy_dirs, etsy_files in os.walk(etsy_folder_path):
+                    for index, file in enumerate(etsy_files, start=1):
+                        if file.lower().endswith(".png") and file.lower().startswith("musteri_teslim"):
+                            file_path = os.path.join(etsy_root, file)
+
+                            # Dosyayı yükle ve indirme linkini al
+                            try:
+                                download_link = upload_to_gofile(file_path,gofile_token)
+                                if download_link:
+                                    download_links.append(download_link)
+                            except Exception as e:
+                                print(f"Yükleme hatası: {e}")
+
+            except Exception as e:
+                print(f"Hata: {e}")
+                continue
+
+            if download_links:
+                output_file = os.path.join(etsy_folder_path, "download_links.pdf")
+                try:
+                    create_download_link_pdf(output_file, download_links)
+                    print(f"İşlem tamamlandı. {output_file} dosyası oluşturuldu.")
+                except Exception as e:
+                    print(f"PDF oluşturma hatası: {e}")
+            else:
+                print("musteri_teslim dosyası bulunamadı.")
+
+def upload_images_to_etsy_folder(input_folder):
+    for root, dirs, files in os.walk(input_folder):
+        etsy_folder = os.path.join(root, "etsy")
+        if not os.path.exists(etsy_folder) or not os.path.isdir(etsy_folder):
+            continue
+
+        for etsy_root, etsy_dirs, etsy_files in os.walk(etsy_folder):
+            for file in etsy_files:
+                if not file.lower().startswith("musteri_teslim") and file.lower().endswith((".png", ".jpg", ".jpeg")):
+                    file_path = os.path.join(etsy_root, file)
+
+                    # Etsye yükleme işlemi
+                    # Burada etsy API'sini kullanarak dosyayı etsy klasörüne yükleyebilirsiniz
+                    # Gerekli API isteklerini yaparak dosyanın etsy hesabına yüklenmesini sağlayabilirsiniz
+                    # İlgili API belgelerini inceleyerek gerekli adımları takip edebilirsiniz
+                    # Örnek olarak requests kütüphanesini kullanarak POST isteği yapabilirsiniz
+
+                    # Örnek bir kod parçası:
+                    headers = {
+                        "Authorization": "Bearer YOUR_ACCESS_TOKEN",
+                        # Diğer gerekli başlıkları ve verileri ekleyin
+                    }
+
+                    url = "https://api.etsy.com/v3/listings"
+                    data = {
+                        # Gerekli verileri ekleyin
+                    }
+
+                    response = requests.post(url, headers=headers, data=data)
+
+                    if response.status_code == 200:
+                        print(f"{file} dosyası etsy hesabına yüklendi.")
+                    else:
+                        print(f"{file} dosyası yüklenirken bir hata oluştu.")
+
+def close_photoshop():
+    try:
+        app = win32com.client.Dispatch("Photoshop.Application")
+        app.Quit()
+        print("Photoshop kapatıldı.")
+    except Exception as e:
+        print(f"Hata: {e}")
+
+def main(settings):
+    input_folder = settings["input_folder"]
+    mockup_folder = settings["mockup_folder"]
+    action_name = settings["action_name"]
+    action_set_name = settings["action_set_name"]
+    keywords = settings["keywords"]
+    min_mockup_files = settings["min_mockup_files"]
+    max_mockup_files = settings["max_mockup_files"]
+    go_file_token = settings["go_file_token"]
+
+    create_etsy_folders(input_folder)
+    copy_images_to_etsy_folder(input_folder)
+    resize_files(input_folder)
+    rename_files(input_folder)
+    delete_empty_etsy_folders(input_folder)
+    copy_mockup_files(mockup_folder,input_folder,min_mockup_files,max_mockup_files)
+    process_mockup_files(input_folder, action_name, action_set_name, keywords)
+    process_customer_delivery_files(input_folder)
+    remove_psd_files_from_etsy_folders(input_folder)
+    process_customer_delivery_files_with_pdf(input_folder,go_file_token)
+    #upload_images_to_etsy_folder(input_folder)
+    close_photoshop()
+
+if __name__ == "__main__":
+    with open("ayarlar.json") as settings_file:
+        settings = json.load(settings_file)
+    main(settings)
