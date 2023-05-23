@@ -43,8 +43,25 @@ def resize_files(input_folder):
             if file.lower().endswith(".psd"):
                 file_path = os.path.join(root, file)
                 img = Image.open(file_path)
-                img = img.resize((500, 700), Image.ANTIALIAS)
-                img.save(file_path, dpi=(72, 72))
+                width, height = img.size
+
+                # Calculate the desired width and height in pixels
+                desired_width = int(50 * 72 / 2.54)  # Convert cm to inches (72 dpi)
+                desired_height = int(70 * 72 / 2.54)
+
+                # Calculate the scale factor for resizing
+                scale_factor = min(desired_width / width, desired_height / height)
+
+                # Calculate the new width and height
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+
+                # Resize the image with antialiasing
+                resized_img = img.resize((new_width, new_height), Image.ANTIALIAS)
+
+                # Save the resized image with the desired DPI
+                dpi = (72, 72)  # 72 dpi
+                resized_img.save(file_path, dpi=dpi)
 
 def copy_mockup_files(mockup_folder, input_folder,min_mockup_files, max_mockup_files):
     for root, dirs, files in os.walk(input_folder):
@@ -123,18 +140,20 @@ def delete_empty_etsy_folders(input_folder):
 
 def process_customer_delivery_files(input_folder):
     app = win32com.client.Dispatch("Photoshop.Application")
-
+    file_name = os.path.splitext(os.path.basename(input_folder))[0]
+    folder_name = os.path.basename(input_folder)
     for root, dirs, files in os.walk(input_folder):
         for index, file in enumerate(files, start=1):
             if file.lower().endswith(".png") and not file.lower().startswith("musteri_teslim"):
                 file_path = os.path.join(root, file)
                 new_file_name = f"musteri_teslim{index}.png"
-                doc = app.Open(file_path)
-                doc = app.ActiveDocument
-                app.DoAction("musteri_teslim", "ayar")
+                if not file.lower().startswith(folder_name.lower()):
+                    doc = app.Open(file_path)
+                    doc = app.ActiveDocument
+                    app.DoAction("musteri_teslim", "ayar")
                 etsy_folder_path = os.path.join(root, "etsy")
                 if not os.path.exists(etsy_folder_path):
-                    os.makedirs(etsy_folder_path)
+                    continue
 
                 try:
                     shutil.copy(file_path, os.path.join(etsy_folder_path, new_file_name))
